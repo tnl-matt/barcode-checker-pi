@@ -1,17 +1,68 @@
 #!/usr/bin/env python
 
 import evdev
-from select import select
 
 import os
 import struct
 import sys
 import time
 
+
+"""Keyboard Button Mapping"""
+KEY_MAP = {}
+KEY_MAP[evdev.ecodes.KEY_GRAVE] = ('`', '~')
+KEY_MAP[evdev.ecodes.KEY_1] = ('1', '!')
+KEY_MAP[evdev.ecodes.KEY_2] = ('2', '@')
+KEY_MAP[evdev.ecodes.KEY_3] = ('3', '#')
+KEY_MAP[evdev.ecodes.KEY_4] = ('4', '$')
+KEY_MAP[evdev.ecodes.KEY_5] = ('5', '%')
+KEY_MAP[evdev.ecodes.KEY_6] = ('6', '^')
+KEY_MAP[evdev.ecodes.KEY_7] = ('7', '&')
+KEY_MAP[evdev.ecodes.KEY_8] = ('8', '*')
+KEY_MAP[evdev.ecodes.KEY_9] = ('9', '(')
+KEY_MAP[evdev.ecodes.KEY_0] = ('0', ')')
+KEY_MAP[evdev.ecodes.KEY_MINUS] = ('-', '_')
+KEY_MAP[evdev.ecodes.KEY_EQUAL] = ('=', '+')
+KEY_MAP[evdev.ecodes.KEY_TAB] = ("\t", "\t")
+KEY_MAP[evdev.ecodes.KEY_Q] = ('q', 'Q')
+KEY_MAP[evdev.ecodes.KEY_W] = ('w', 'W')
+KEY_MAP[evdev.ecodes.KEY_E] = ('e', 'E')
+KEY_MAP[evdev.ecodes.KEY_R] = ('r', 'R')
+KEY_MAP[evdev.ecodes.KEY_T] = ('t', 'T')
+KEY_MAP[evdev.ecodes.KEY_Y] = ('y', 'Y')
+KEY_MAP[evdev.ecodes.KEY_U] = ('u', 'U')
+KEY_MAP[evdev.ecodes.KEY_I] = ('i', 'I')
+KEY_MAP[evdev.ecodes.KEY_O] = ('o', 'O')
+KEY_MAP[evdev.ecodes.KEY_P] = ('p', 'P')
+KEY_MAP[evdev.ecodes.KEY_LEFTBRACE] = ('[', '{')
+KEY_MAP[evdev.ecodes.KEY_RIGHTBRACE] = (']', '}')
+KEY_MAP[evdev.ecodes.KEY_BACKSLASH] = ("\\", '|')
+KEY_MAP[evdev.ecodes.KEY_A] = ('a', 'A')
+KEY_MAP[evdev.ecodes.KEY_S] = ('s', 'S')
+KEY_MAP[evdev.ecodes.KEY_D] = ('d', 'D')
+KEY_MAP[evdev.ecodes.KEY_F] = ('f', 'F')
+KEY_MAP[evdev.ecodes.KEY_G] = ('g', 'G')
+KEY_MAP[evdev.ecodes.KEY_H] = ('h', 'H')
+KEY_MAP[evdev.ecodes.KEY_J] = ('j', 'J')
+KEY_MAP[evdev.ecodes.KEY_K] = ('k', 'K')
+KEY_MAP[evdev.ecodes.KEY_L] = ('l', 'L')
+KEY_MAP[evdev.ecodes.KEY_SEMICOLON] = (';', ':')
+KEY_MAP[evdev.ecodes.KEY_APOSTROPHE] = ("'", '"')
+KEY_MAP[evdev.ecodes.KEY_Z] = ('z', 'Z')
+KEY_MAP[evdev.ecodes.KEY_X] = ('x', 'X')
+KEY_MAP[evdev.ecodes.KEY_C] = ('c', 'C')
+KEY_MAP[evdev.ecodes.KEY_V] = ('v', 'V')
+KEY_MAP[evdev.ecodes.KEY_B] = ('b', 'B')
+KEY_MAP[evdev.ecodes.KEY_N] = ('n', 'N')
+KEY_MAP[evdev.ecodes.KEY_M] = ('m', 'M')
+KEY_MAP[evdev.ecodes.KEY_COMMA] = (',', '<')
+KEY_MAP[evdev.ecodes.KEY_DOT] = ('.', '>')
+KEY_MAP[evdev.ecodes.KEY_SLASH] = ('/', '?')
+
 IS_PI_AVAILABLE = False
 
 # What device does the scanner attach to?
-BARCODE_SCANNER_DEV = '/dev/input/event0'
+BARCODE_SCANNER_DEV = '/dev/input/event2'
 
 # GPIO Pins
 GREEN_LED_PIN = 18
@@ -26,7 +77,7 @@ PROGRAMMING_MODE = 'PROGRAMMING_MODE'
 BEGIN_PROGRAMMING = '__BEGINPROG__'
 END_PROGRAMMING = '__ENDPROG__'
 RESTART_SCANNING = '__CANCEL__'
-QUIT_BARCODE = 'STOP'
+QUIT_BARCODE = '__STOP__'
 
 # Match modes
 MATCH_02 = '__MATCH02__'
@@ -141,19 +192,25 @@ def blink_led_x_times(pin, times):
 
 
 def start_led(pin):
-    print('Start LED at {} on'.format(pin))
     if IS_PI_AVAILABLE:
         GPIO.output(pin, GPIO.HIGH)
+    else:
+        print('Start LED at {} on'.format(pin))
 
 
 def end_led(pin):
-    print('End LED at {} on'.format(pin))
     if IS_PI_AVAILABLE:
         GPIO.output(pin, GPIO.LOW)
+    else:
+        print('End LED at {} on'.format(pin))
 
 
 def turn_off_all_leds():
-    for pin in [GREEN_LED_PIN, RED_LED_PIN, YELLOW_LED_PIN]:
+    for pin in [
+        GREEN_LED_PIN,
+        RED_LED_PIN,
+        YELLOW_LED_PIN,
+    ]:
         end_led(pin)
 
 
@@ -165,55 +222,85 @@ working_match_mode = current_match_mode
 n_barcodes = get_match_count_for_mode(current_match_mode)
 barcodes = []
 
+is_device_connected = False
 input_device = None
-while input_device is None:
+while not is_device_connected:
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
     blink_led_x_times(YELLOW_LED_PIN, 1)
-    if os.path.exists(BARCODE_SCANNER_DEV):
-        # input_device = open(BARCODE_SCANNER_DEV, 'rb')
-        input_device = evdev.InputDevice(BARCODE_SCANNER_DEV)
-        
-        
-is_shift_active = False
-def get_next_char(f):
-    output = ''
-    r, w, x = select([f], [], [])
-    for event in f.read():
-        if event.type == 1 and event.value == 1 and str(event.code) and str(event.code) != 'None':
-            output = str(event.code)
-            print 'get_next_char {}'.format(output)
-            break
-    return output
+    for device in devices:
+        if device.name.startswith('Honeywell'):
+            input_device = device
+            is_device_connected = True
+            print "Found device"
+            print input_device.name
+            print input_device.path
+
+
+class KeyboardMonitor:
+    def __init__(self):
+        self.caps_active = False
+        self.shift_count = 0
+
+    def clear_shifts(self):
+        self.caps_active = False
+        self.shift_count = 0
+
+    def char_from_event(self, e):
+        """
+        Convert a keyboard event to a character.
+        The value is 0=up, 1=down, 2=hold
+        """
+        output = ''
+        e_code, e_type, e_value = e.code, e.type, e.value
+
+        if e_code == evdev.ecodes.KEY_ENTER and e_value == 0:
+            return "\n"
+
+        if e_code in [
+            evdev.ecodes.KEY_LEFTSHIFT,
+            evdev.ecodes.KEY_RIGHTSHIFT
+        ]:
+            if e_value == 0:
+                self.shift_count -= 1
+            elif e_value == 1:
+                self.shift_count += 1
+            return ''
+
+        if e_code == evdev.ecodes.KEY_CAPSLOCK:
+            if e_value == 0:
+                self.caps_active = not self.caps_active
+            return ''
+
+        if e_code in KEY_MAP and e.value == 0:
+            keys = KEY_MAP[e_code]
+            if self.shift_count > 0:
+                return keys[1]
+            return keys[0]
+        return ''
 
 
 barcode = ''
-building_barcode = True
-
+monitor = KeyboardMonitor()
 for e in input_device.read_loop():
     if e.type != evdev.ecodes.EV_KEY:
         continue
 
-    # barcode = raw_input('barcode {}->'.format(nth_barcode))
+    this_char = monitor.char_from_event(e)
+
+    if this_char != "\n":
+        barcode = barcode + this_char
+        continue
+    monitor.clear_shifts()
 
     nth_barcode = len(barcodes) + 1
-    print(evdev.categorize(e))
-    this_key = key_from_event(e)
-
-    if building_barcode:
-        print("This char: {} this barcode: {}".format(this_char, barcode))
-        if this_char == "\n":
-            building_barcode = False
-        else:
-            barcode = barcode + str(this_char)
-
-
-    print("Mode: {}, Barcode {}: {}".format(current_mode, nth_barcode, barcode))
-
 
     if barcode == QUIT_BARCODE:
+        barcode = ''
         break
     
     if barcode == BEGIN_PROGRAMMING:
         current_mode = PROGRAMMING_MODE
+        barcode = ''
         barcodes = []
         turn_off_all_leds()
         start_led(RED_LED_PIN)
@@ -222,40 +309,35 @@ for e in input_device.read_loop():
     if barcode == END_PROGRAMMING:
         if current_mode != PROGRAMMING_MODE:
             continue
-        n_barcodes = get_match_count_for_mode(working_match_mode)
+        n_barcodes = get_match_count_for_mode(
+            working_match_mode
+        )
         save_stored_match_mode(working_match_mode)
         turn_off_all_leds()
         blink_led_x_times(GREEN_LED_PIN, n_barcodes)
         current_mode = SCAN_MODE
+        barcode = ''
         continue
-    
+
     if barcode == RESTART_SCANNING:
         turn_off_all_leds()
         barcodes = []
+        barcode = ''
         continue
 
     if current_mode == SCAN_MODE:
-        # Handle scanning mode
         if nth_barcode == 1:
             start_led(YELLOW_LED_PIN)
 
         if nth_barcode == n_barcodes:
             end_led(YELLOW_LED_PIN)
-
-        if nth_barcode == n_barcodes:
             barcodes_match = True
             for (i, bc) in enumerate(barcodes):
                 if bc != barcode:
                     barcodes_match = False
-                    print("Mismatch at {}: {}\n".format(
-                        i + 1,
-                        bc
-                    ))
             if not barcodes_match:
-                print("TODO show red LED\n")
                 flash_led(RED_LED_PIN)
             else:
-                print("TODO show green LED\n")
                 flash_led(GREEN_LED_PIN)
             barcodes = []
         else:
@@ -265,8 +347,12 @@ for e in input_device.read_loop():
         if barcode in VALID_MATCH_MODES:
             working_match_mode = barcode
 
+    barcode = ''
+
+
 if input_device is not None:
     input_device.close()
+
 
 if IS_PI_AVAILABLE:
     GPIO.cleanup([RED_LED_PIN, GREEN_LED_PIN, YELLOW_LED_PIN])
