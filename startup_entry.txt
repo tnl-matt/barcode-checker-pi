@@ -1,0 +1,2 @@
+# Put the following command into /etc/rc.local
+sudo python /home/pi/Projects/barcode-checker/check_barcodes.py &
