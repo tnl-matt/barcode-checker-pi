@@ -1,2 +1,2 @@
 # Put the following command into /etc/rc.local
-sudo python /home/pi/Projects/barcode-checker/check_barcodes.py &
+sudo python /home/pi/Projects/barcode-checker/check_barcodes.py & > /home/pi/Projects/barcode-checker/log.txt 2>&1
